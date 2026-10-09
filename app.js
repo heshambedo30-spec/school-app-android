@@ -37,6 +37,7 @@ let appData = loadData();
 let currentTab = 'daily';
 let selectedDate = new Date().toISOString().slice(0, 10);
 let selectedTeacherId = appData.teachers[0]?.id || 1;
+let ocrEditingData = null;
 
 const els = {
   selectedDate: document.getElementById('selectedDate'),
@@ -409,113 +410,98 @@ function extractTeacherBlocks(rawText) {
   return blocks.filter(block => block.name && block.schedule.length);
 }
 
-function buildTeacherFromText(rawText) {
-  const blocks = extractTeacherBlocks(rawText);
-
-  if (!blocks.length) {
-    return null;
-  }
-
-  const teacherData = blocks.map(block => {
-    const name = block.name.replace(/[^\u0600-\u06FF\s]/g, '').trim();
-    const scheduleText = block.schedule.join(' ');
-    return {
-      name,
-      scheduleText
-    };
-  });
-
-  return teacherData;
-}
-
-function formatOcrResultForReview() {
-  const text = els.ocrResult.value.trim();
-  if (!text) {
+function renderOcrEditingTable() {
+  if (!ocrEditingData || !ocrEditingData.length) {
     alert('لا توجد بيانات لعرضها');
     return;
   }
 
-  const parsed = buildTeacherFromText(text);
-
-  if (!parsed || !parsed.length) {
-    alert('تم قراءة النص. يمكنك تعديله يدويًا قبل الحفظ.');
-    return;
-  }
-
-  let output = '=== بيانات المعلمين المستخرجة من الصورة ===\n\n';
-
-  parsed.forEach((item, index) => {
-    output += `المعلم ${index + 1}: ${item.name}\n`;
-    output += `الحصص: ${item.scheduleText}\n`;
-    output += '---\n\n';
+  let html = '<div class="ocr-editing-table">';
+  
+  ocrEditingData.forEach((teacher, teacherIdx) => {
+    html += `
+      <div class="ocr-teacher-block">
+        <div class="ocr-teacher-header">
+          <label>اسم المعلم ${teacherIdx + 1}:</label>
+          <input type="text" class="ocr-teacher-name" value="${teacher.name}" data-idx="${teacherIdx}" />
+        </div>
+        
+        <table class="ocr-schedule-table">
+          <thead>
+            <tr>
+              <th>اليوم</th>
+              ${Array.from({length: PERIODS}, (_, i) => `<th>${i + 1}</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            ${DAYS.map((day, dayIdx) => `
+              <tr>
+                <td class="day-label">${day}</td>
+                ${Array.from({length: PERIODS}, (_, p) => {
+                  const value = teacher.schedule[`${day}_${p + 1}`] || '';
+                  return `<td><input type="text" class="ocr-cell" value="${value}" data-tidx="${teacherIdx}" data-day="${day}" data-period="${p + 1}" /></td>`;
+                }).join('')}
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
   });
 
-  output += '=== تعليمات ===\n';
-  output += 'تحقق من البيانات أعلاه.\n';
-  output += 'يمكنك تعديل أي اسم أو بيانات حصص.\n';
-  output += 'ثم اضغط "حفظ البيانات المعدلة" لإضافتهم للتطبيق.\n';
-
-  els.ocrResult.value = output;
-
-  alert('✅ تمت معالجة النص. يمكنك الآن تعديل أي بيانات قبل الحفظ.');
+  html += '</div>';
+  
+  els.ocrResult.style.display = 'none';
+  
+  const container = document.createElement('div');
+  container.id = 'ocr-editing-container';
+  container.innerHTML = html;
+  
+  const existingContainer = document.getElementById('ocr-editing-container');
+  if (existingContainer) existingContainer.remove();
+  
+  els.ocrResult.parentElement.insertBefore(container, els.ocrResult);
+  
+  els.ocrProgress.textContent = '✅ تم استخراج البيانات - عدّل أي خطأ ثم اضغط حفظ';
 }
 
-function saveFinalTeacherData() {
-  const raw = els.ocrResult.value.trim();
-  if (!raw) {
+function collectEditedOcrData() {
+  const edited = [];
+  
+  document.querySelectorAll('.ocr-teacher-block').forEach((block, idx) => {
+    const nameInput = block.querySelector('.ocr-teacher-name');
+    const name = nameInput.value.trim();
+    
+    if (!name) return;
+    
+    const schedule = {};
+    block.querySelectorAll('.ocr-cell').forEach(cell => {
+      const day = cell.dataset.day;
+      const period = cell.dataset.period;
+      const value = cell.value.trim();
+      
+      if (value) {
+        schedule[`${day}_${period}`] = value;
+      }
+    });
+    
+    edited.push({ name, schedule });
+  });
+  
+  return edited;
+}
+
+function saveFinalOcrData() {
+  const edited = collectEditedOcrData();
+  
+  if (!edited || !edited.length) {
     alert('لا توجد بيانات للحفظ');
-    return;
-  }
-
-  // استخراج الأسماء من السطور التي تبدأ بـ "المعلم"
-  const lines = raw.split('\n');
-  const teachersToAdd = [];
-  let currentTeacher = null;
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-
-    if (trimmed.startsWith('المعلم')) {
-      if (currentTeacher) teachersToAdd.push(currentTeacher);
-      const match = trimmed.match(/المعلم\s*\d+:\s*(.+)/);
-      if (match && match[1]) {
-        currentTeacher = {
-          name: match[1].trim(),
-          scheduleData: []
-        };
-      }
-      continue;
-    }
-
-    if (trimmed === '---' || trimmed.startsWith('===')) {
-      continue;
-    }
-
-    if (currentTeacher && trimmed.startsWith('الحصص:')) {
-      const scheduleText = trimmed.replace('الحصص:', '').trim();
-      currentTeacher.scheduleData = scheduleText.split(/\s+/).filter(Boolean);
-      continue;
-    }
-
-    if (currentTeacher && /[^\s]/.test(trimmed) && !trimmed.startsWith('المعلم') && !trimmed.startsWith('الحصص')) {
-      // أي سطر آخر قد يحتوي على بيانات إضافية
-      if (!/^[=\-]/.test(trimmed)) {
-        currentTeacher.scheduleData.push(...trimmed.split(/\s+/).filter(Boolean));
-      }
-    }
-  }
-
-  if (currentTeacher) teachersToAdd.push(currentTeacher);
-
-  if (teachersToAdd.length === 0) {
-    alert('لم يتم استخراج أي معلمين. تأكد من الصيغة الصحيحة.');
     return;
   }
 
   let addedCount = 0;
 
-  teachersToAdd.forEach(item => {
+  edited.forEach(item => {
     if (!item.name) return;
 
     const existing = appData.teachers.find(
@@ -523,27 +509,15 @@ function saveFinalTeacherData() {
            item.name.toLowerCase().includes(t.name.toLowerCase())
     );
 
-    const parsedSchedule = {};
-    const dayNames = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس'];
-
-    item.scheduleData.forEach((data, index) => {
-      const day = dayNames[index % dayNames.length];
-      const period = (Math.floor(index / dayNames.length)) + 1;
-
-      if (period <= PERIODS && data) {
-        parsedSchedule[`${day}_${period}`] = data;
-      }
-    });
-
     if (existing) {
-      existing.tt = { ...existing.tt, ...parsedSchedule };
+      existing.tt = { ...existing.tt, ...item.schedule };
       addedCount++;
     } else {
       appData.teachers.push({
         id: appData.nextId,
         name: item.name,
         subject: 'غير محدد',
-        tt: parsedSchedule
+        tt: item.schedule
       });
       appData.nextId += 1;
       addedCount++;
@@ -553,10 +527,15 @@ function saveFinalTeacherData() {
   saveData();
   refreshAll();
 
+  // تنظيف
+  const container = document.getElementById('ocr-editing-container');
+  if (container) container.remove();
+  els.ocrResult.style.display = 'block';
   els.ocrResult.value = '';
   els.ocrPreview.src = '';
   els.ocrPreview.style.display = 'none';
   els.ocrProgress.textContent = 'في انتظار الصورة...';
+  ocrEditingData = null;
 
   alert(`✅ تم حفظ ${addedCount} معلم/معلمين بنجاح!`);
 }
@@ -586,11 +565,56 @@ async function handleOcrUpload(event) {
 
     const text = result.data.text || '';
     els.ocrResult.value = text;
-    els.ocrProgress.textContent = '✅ تمت القراءة بنجاح - اضغط "تنسيق البيانات" للمراجعة';
+    els.ocrProgress.textContent = '✅ تمت القراءة - اضغط "تنسيق البيانات" للمراجعة والتعديل';
   } catch (error) {
     els.ocrProgress.textContent = 'فشل في القراءة. جرّب صورة أوضح.';
     console.error(error);
   }
+}
+
+function formatOcrData() {
+  const rawText = els.ocrResult.value.trim();
+  if (!rawText) {
+    alert('لا توجد بيانات OCR');
+    return;
+  }
+
+  const blocks = extractTeacherBlocks(rawText);
+
+  if (!blocks.length) {
+    alert('لم يتم اكتشاف أي بيانات. تأكد من الصورة.');
+    return;
+  }
+
+  ocrEditingData = blocks.map(block => ({
+    name: block.name.replace(/[^\u0600-\u06FF\s]/g, '').trim(),
+    schedule: parseScheduleFromBlock(block)
+  }));
+
+  renderOcrEditingTable();
+}
+
+function parseScheduleFromBlock(block) {
+  const schedule = {};
+  const dayNames = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس'];
+
+  block.schedule.forEach((line, lineIdx) => {
+    const cells = line.split(/\s+/).filter(Boolean);
+    cells.forEach((cell, cellIdx) => {
+      const value = cell.replace(/[^\d\/SecA-Za-z]/gi, '').trim();
+      if (!value || !/(^\d+\/\d+|^Sec\d+)/.test(value)) return;
+
+      const dayIdx = lineIdx % dayNames.length;
+      const period = Math.floor(cellIdx / dayNames.length) + 1;
+      const day = dayNames[dayIdx];
+
+      if (period <= PERIODS) {
+        schedule[`${day}_${period}`] = value;
+      }
+    });
+  });
+
+  return schedule;
 }
 
 function bindEvents() {
@@ -619,9 +643,9 @@ function bindEvents() {
 
   els.scanScheduleBtn.addEventListener('click', () => els.ocrFileInput.click());
   els.ocrFileInput.addEventListener('change', handleOcrUpload);
-  els.applyOcrBtn.addEventListener('click', formatOcrResultForReview);
+  els.applyOcrBtn.addEventListener('click', formatOcrData);
   if (els.saveOcrBtn) {
-    els.saveOcrBtn.addEventListener('click', saveFinalTeacherData);
+    els.saveOcrBtn.addEventListener('click', saveFinalOcrData);
   }
 
   document.addEventListener('click', e => {
