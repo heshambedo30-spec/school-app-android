@@ -1,0 +1,11 @@
+{
+  "name": "School App",
+  "short_name": "School App",
+  "description": "نظام توزيع الاحتياطي للمشرفين",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#f4f7fb",
+  "theme_color": "#1e3a83",
+  "orientation": "portrait",
+  "icons": []
+}

@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#1e3a83" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="School App" />
+    <title>School App</title>
+    <link rel="manifest" href="manifest.json" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>📋 نظام توزيع الاحتياطي</h1>
+          <small>إدارة المدرسين والحصص اليومي</small>
+        </div>
+      </header>
+
+      <main class="main">
+        <nav class="tabs" aria-label="التنقل بين الأقسام">
+          <button class="tab active" data-tab="daily" type="button">اليومية</button>
+          <button class="tab" data-tab="schedule" type="button">الجداول</button>
+          <button class="tab" data-tab="teachers" type="button">المدرسين</button>
+          <button class="tab" data-tab="reports" type="button">التقارير</button>
+        </nav>
+
+        <section class="panel active" id="daily-panel">
+          <div class="card">
+            <div class="field-row">
+              <label>التاريخ</label>
+              <input id="selectedDate" type="date" />
+            </div>
+
+            <div class="stats-grid">
+              <div class="stat-box danger">
+                <strong id="absentCount">0</strong>
+                <span>غائبون</span>
+              </div>
+              <div class="stat-box primary">
+                <strong id="needCount">0</strong>
+                <span>حصر احتياطي</span>
+              </div>
+            </div>
+
+            <button id="autoDistributeBtn" class="btn primary full" type="button">⚡ توزيع تلقائي</button>
+
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>الحصة</th>
+                    <th>الفصل</th>
+                    <th>المدرس الغائب</th>
+                    <th>البديل</th>
+                    <th>الحمل</th>
+                  </tr>
+                </thead>
+                <tbody id="dailyTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3>❌ تسجيل الغائبين</h3>
+            <div id="absentList" class="list"></div>
+          </div>
+
+          <div class="card">
+            <h3>🛡️ الاستثناءات</h3>
+            <div id="exemptList" class="list"></div>
+          </div>
+        </section>
+
+        <section class="panel" id="schedule-panel">
+          <div class="card">
+            <div class="field-row">
+              <label>المعلم</label>
+              <select id="teacherSelect"></select>
+            </div>
+
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>اليوم</th>
+                    <th>1</th>
+                    <th>2</th>
+                    <th>3</th>
+                    <th>4</th>
+                    <th>5</th>
+                    <th>6</th>
+                    <th>7</th>
+                    <th>8</th>
+                  </tr>
+                </thead>
+                <tbody id="scheduleTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" id="teachers-panel">
+          <div class="card">
+            <h3>👥 إدارة المدرسين</h3>
+            <div class="field-row add-row">
+              <input id="teacherNameInput" type="text" placeholder="اسم المدرس" />
+              <input id="teacherSubjectInput" type="text" placeholder="المادة" />
+              <button id="addTeacherBtn" class="btn primary" type="button">إضافة</button>
+            </div>
+            <div id="teachersList" class="list"></div>
+          </div>
+        </section>
+
+        <section class="panel" id="reports-panel">
+          <div class="card">
+            <div class="field-row">
+              <label>الشهر</label>
+              <input id="monthInput" type="month" />
+            </div>
+
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>المدرس</th>
+                    <th>المادة</th>
+                    <th>الغياب</th>
+                    <th>التوزيع</th>
+                  </tr>
+                </thead>
+                <tbody id="reportBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="app.js"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('sw.js').catch(err => console.log('SW registration failed', err));
+        });
+      }
+    </script>
+  </body>
+</html>
