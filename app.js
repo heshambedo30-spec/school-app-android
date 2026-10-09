@@ -59,7 +59,8 @@ const els = {
   ocrPreview: document.getElementById('ocrPreview'),
   ocrProgress: document.getElementById('ocrProgress'),
   ocrResult: document.getElementById('ocrResult'),
-  applyOcrBtn: document.getElementById('applyOcrBtn')
+  applyOcrBtn: document.getElementById('applyOcrBtn'),
+  saveOcrBtn: document.getElementById('saveOcrBtn')
 };
 
 function saveData() {
@@ -355,50 +356,209 @@ function autoDistribute() {
   refreshAll();
 }
 
-function parseOcrTextToTeacherSchedule(rawText, teacher) {
-  if (!teacher) return;
-  const normalized = rawText.replace(/\s+/g, ' ').trim();
-  if (!normalized) return;
+// OCR Functions
+function normalizeOcrText(rawText) {
+  return rawText
+    .replace(/\r/g, '\n')
+    .replace(/\|/g, ' ')
+    .replace(/[—–]/g, ' ')
+    .replace(/\t/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
-  const teacherSchedule = { ...(teacher.tt || {}) };
-  const dayPatterns = DAYS.map(day => ({ day, key: day }));
+function isLikelyTeacherName(line) {
+  const cleaned = line.replace(/[^\u0600-\u06FF\s]/g, '').trim();
+  if (!cleaned) return false;
+  if (cleaned.length < 3 || cleaned.length > 40) return false;
+  if (/\d/.test(cleaned)) return false;
+  if (!/[أ-ي]/.test(cleaned)) return false;
+  return true;
+}
 
-  for (const { day } of dayPatterns) {
-    for (let p = 1; p <= PERIODS; p++) {
-      const pattern = new RegExp(`${day}[^\n]*?(?:\b${p}\b|حصة\s*${p})[^\n]*?([0-9/]+)`, 'i');
-      const match = normalized.match(pattern);
-      if (match && match[1]) {
-        teacherSchedule[`${day}_${p}`] = match[1].trim();
-      }
-    }
-  }
+function extractTeacherBlocks(rawText) {
+  const normalized = normalizeOcrText(rawText);
+  const lines = normalized.split('\n').map(line => line.trim()).filter(Boolean);
 
-  const fallbackText = normalized.replace(/[،;:()]/g, ' ');
-  const lines = fallbackText.split(/\s+/);
-  let currentDay = null;
+  const blocks = [];
+  let current = null;
 
-  for (let i = 0; i < lines.length; i++) {
-    const token = lines[i];
-    const foundDay = DAYS.find(day => token.includes(day));
-    if (foundDay) {
-      currentDay = foundDay;
+  for (const line of lines) {
+    if (isLikelyTeacherName(line)) {
+      if (current) blocks.push(current);
+      current = { name: line, schedule: [] };
       continue;
     }
 
-    if (!currentDay) continue;
-    const periodMatch = token.match(/^([1-8])$/);
-    if (periodMatch) {
-      const period = Number(periodMatch[1]);
-      const nextToken = lines[i + 1] || '';
-      if (/^[0-9/]+$/.test(nextToken)) {
-        teacherSchedule[`${currentDay}_${period}`] = nextToken;
+    if (current) {
+      const cleaned = line.replace(/[|]/g, ' ').trim();
+      if (!cleaned) continue;
+
+      const hasData =
+        /(\d+\/\d+|Sec\d+|[0-9]+)/i.test(cleaned) ||
+        /(\d+\s*\/\s*\d+)/.test(cleaned);
+
+      if (hasData) {
+        current.schedule.push(cleaned);
       }
     }
   }
 
-  teacher.tt = teacherSchedule;
+  if (current) blocks.push(current);
+
+  return blocks.filter(block => block.name && block.schedule.length);
+}
+
+function buildTeacherFromText(rawText) {
+  const blocks = extractTeacherBlocks(rawText);
+
+  if (!blocks.length) {
+    return null;
+  }
+
+  const teacherData = blocks.map(block => {
+    const name = block.name.replace(/[^\u0600-\u06FF\s]/g, '').trim();
+    const scheduleText = block.schedule.join(' ');
+    return {
+      name,
+      scheduleText
+    };
+  });
+
+  return teacherData;
+}
+
+function formatOcrResultForReview() {
+  const text = els.ocrResult.value.trim();
+  if (!text) {
+    alert('لا توجد بيانات لعرضها');
+    return;
+  }
+
+  const parsed = buildTeacherFromText(text);
+
+  if (!parsed || !parsed.length) {
+    alert('تم قراءة النص. يمكنك تعديله يدويًا قبل الحفظ.');
+    return;
+  }
+
+  let output = '=== بيانات المعلمين المستخرجة من الصورة ===\n\n';
+
+  parsed.forEach((item, index) => {
+    output += `المعلم ${index + 1}: ${item.name}\n`;
+    output += `الحصص: ${item.scheduleText}\n`;
+    output += '---\n\n';
+  });
+
+  output += '=== تعليمات ===\n';
+  output += 'تحقق من البيانات أعلاه.\n';
+  output += 'يمكنك تعديل أي اسم أو بيانات حصص.\n';
+  output += 'ثم اضغط "حفظ البيانات المعدلة" لإضافتهم للتطبيق.\n';
+
+  els.ocrResult.value = output;
+
+  alert('✅ تمت معالجة النص. يمكنك الآن تعديل أي بيانات قبل الحفظ.');
+}
+
+function saveFinalTeacherData() {
+  const raw = els.ocrResult.value.trim();
+  if (!raw) {
+    alert('لا توجد بيانات للحفظ');
+    return;
+  }
+
+  // استخراج الأسماء من السطور التي تبدأ بـ "المعلم"
+  const lines = raw.split('\n');
+  const teachersToAdd = [];
+  let currentTeacher = null;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    if (trimmed.startsWith('المعلم')) {
+      if (currentTeacher) teachersToAdd.push(currentTeacher);
+      const match = trimmed.match(/المعلم\s*\d+:\s*(.+)/);
+      if (match && match[1]) {
+        currentTeacher = {
+          name: match[1].trim(),
+          scheduleData: []
+        };
+      }
+      continue;
+    }
+
+    if (trimmed === '---' || trimmed.startsWith('===')) {
+      continue;
+    }
+
+    if (currentTeacher && trimmed.startsWith('الحصص:')) {
+      const scheduleText = trimmed.replace('الحصص:', '').trim();
+      currentTeacher.scheduleData = scheduleText.split(/\s+/).filter(Boolean);
+      continue;
+    }
+
+    if (currentTeacher && /[^\s]/.test(trimmed) && !trimmed.startsWith('المعلم') && !trimmed.startsWith('الحصص')) {
+      // أي سطر آخر قد يحتوي على بيانات إضافية
+      if (!/^[=\-]/.test(trimmed)) {
+        currentTeacher.scheduleData.push(...trimmed.split(/\s+/).filter(Boolean));
+      }
+    }
+  }
+
+  if (currentTeacher) teachersToAdd.push(currentTeacher);
+
+  if (teachersToAdd.length === 0) {
+    alert('لم يتم استخراج أي معلمين. تأكد من الصيغة الصحيحة.');
+    return;
+  }
+
+  let addedCount = 0;
+
+  teachersToAdd.forEach(item => {
+    if (!item.name) return;
+
+    const existing = appData.teachers.find(
+      t => t.name.toLowerCase().includes(item.name.toLowerCase()) ||
+           item.name.toLowerCase().includes(t.name.toLowerCase())
+    );
+
+    const parsedSchedule = {};
+    const dayNames = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس'];
+
+    item.scheduleData.forEach((data, index) => {
+      const day = dayNames[index % dayNames.length];
+      const period = (Math.floor(index / dayNames.length)) + 1;
+
+      if (period <= PERIODS && data) {
+        parsedSchedule[`${day}_${period}`] = data;
+      }
+    });
+
+    if (existing) {
+      existing.tt = { ...existing.tt, ...parsedSchedule };
+      addedCount++;
+    } else {
+      appData.teachers.push({
+        id: appData.nextId,
+        name: item.name,
+        subject: 'غير محدد',
+        tt: parsedSchedule
+      });
+      appData.nextId += 1;
+      addedCount++;
+    }
+  });
+
   saveData();
   refreshAll();
+
+  els.ocrResult.value = '';
+  els.ocrPreview.src = '';
+  els.ocrPreview.style.display = 'none';
+  els.ocrProgress.textContent = 'في انتظار الصورة...';
+
+  alert(`✅ تم حفظ ${addedCount} معلم/معلمين بنجاح!`);
 }
 
 async function handleOcrUpload(event) {
@@ -426,20 +586,11 @@ async function handleOcrUpload(event) {
 
     const text = result.data.text || '';
     els.ocrResult.value = text;
-    els.ocrProgress.textContent = 'تمت القراءة بنجاح';
+    els.ocrProgress.textContent = '✅ تمت القراءة بنجاح - اضغط "تنسيق البيانات" للمراجعة';
   } catch (error) {
     els.ocrProgress.textContent = 'فشل في القراءة. جرّب صورة أوضح.';
     console.error(error);
   }
-}
-
-function applyOcrToTeacher() {
-  const teacher = appData.teachers.find(t => t.id === Number(selectedTeacherId));
-  if (!teacher) return;
-  const raw = els.ocrResult.value.trim();
-  if (!raw) return alert('لا توجد بيانات OCR للجدول');
-  parseOcrTextToTeacherSchedule(raw, teacher);
-  alert('تم تطبيق القراءة على جدول المدرس المحدد');
 }
 
 function bindEvents() {
@@ -468,7 +619,10 @@ function bindEvents() {
 
   els.scanScheduleBtn.addEventListener('click', () => els.ocrFileInput.click());
   els.ocrFileInput.addEventListener('change', handleOcrUpload);
-  els.applyOcrBtn.addEventListener('click', applyOcrToTeacher);
+  els.applyOcrBtn.addEventListener('click', formatOcrResultForReview);
+  if (els.saveOcrBtn) {
+    els.saveOcrBtn.addEventListener('click', saveFinalTeacherData);
+  }
 
   document.addEventListener('click', e => {
     const absentBtn = e.target.closest('[data-toggle-absent]');
