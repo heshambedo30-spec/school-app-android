@@ -10,6 +10,7 @@
     <title>School App</title>
     <link rel="manifest" href="manifest.json" />
     <link rel="stylesheet" href="style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   </head>
   <body>
     <div class="app-shell">
@@ -81,6 +82,15 @@
             <div class="field-row">
               <label>المعلم</label>
               <select id="teacherSelect"></select>
+            </div>
+
+            <div class="ocr-box">
+              <input id="ocrFileInput" type="file" accept="image/*" hidden />
+              <button id="scanScheduleBtn" class="btn primary" type="button">📷 رفع صورة الجدول</button>
+              <img id="ocrPreview" alt="preview" class="ocr-preview" />
+              <div id="ocrProgress" class="ocr-progress">في انتظار الصورة...</div>
+              <textarea id="ocrResult" rows="6" placeholder="سيظهر نص الصورة هنا بعد القراءة..."></textarea>
+              <button id="applyOcrBtn" class="btn outline full" type="button">تطبيق القراءة في جدول المدرس</button>
             </div>
 
             <div class="table-wrap">

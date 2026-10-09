@@ -29,7 +29,7 @@ body {
   direction: rtl;
 }
 
-button, input, select {
+button, input, select, textarea {
   font: inherit;
 }
 
@@ -267,6 +267,42 @@ tbody input {
 
 .list-item small {
   color: var(--muted);
+}
+
+.ocr-box {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 12px 0 18px;
+  padding: 12px;
+  border: 1px dashed #c7d2fe;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+.ocr-preview {
+  display: none;
+  max-height: 220px;
+  width: 100%;
+  object-fit: contain;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: white;
+}
+
+.ocr-progress {
+  color: var(--primary);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+textarea {
+  width: 100%;
+  min-height: 120px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  padding: 10px;
+  resize: vertical;
 }
 
 @media (max-width: 640px) {

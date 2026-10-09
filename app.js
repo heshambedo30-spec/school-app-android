@@ -53,7 +53,13 @@ const els = {
   monthInput: document.getElementById('monthInput'),
   reportBody: document.getElementById('reportBody'),
   autoDistributeBtn: document.getElementById('autoDistributeBtn'),
-  addTeacherBtn: document.getElementById('addTeacherBtn')
+  addTeacherBtn: document.getElementById('addTeacherBtn'),
+  scanScheduleBtn: document.getElementById('scanScheduleBtn'),
+  ocrFileInput: document.getElementById('ocrFileInput'),
+  ocrPreview: document.getElementById('ocrPreview'),
+  ocrProgress: document.getElementById('ocrProgress'),
+  ocrResult: document.getElementById('ocrResult'),
+  applyOcrBtn: document.getElementById('applyOcrBtn')
 };
 
 function saveData() {
@@ -114,7 +120,6 @@ function renderDaily() {
   els.absentCount.textContent = absentIds.length;
   els.needCount.textContent = String(need);
 
-  // table rows
   const teacherMap = Object.fromEntries(appData.teachers.map(t => [t.id, t]));
   const rows = [];
 
@@ -350,6 +355,93 @@ function autoDistribute() {
   refreshAll();
 }
 
+function parseOcrTextToTeacherSchedule(rawText, teacher) {
+  if (!teacher) return;
+  const normalized = rawText.replace(/\s+/g, ' ').trim();
+  if (!normalized) return;
+
+  const teacherSchedule = { ...(teacher.tt || {}) };
+  const dayPatterns = DAYS.map(day => ({ day, key: day }));
+
+  for (const { day } of dayPatterns) {
+    for (let p = 1; p <= PERIODS; p++) {
+      const pattern = new RegExp(`${day}[^\n]*?(?:\b${p}\b|حصة\s*${p})[^\n]*?([0-9/]+)`, 'i');
+      const match = normalized.match(pattern);
+      if (match && match[1]) {
+        teacherSchedule[`${day}_${p}`] = match[1].trim();
+      }
+    }
+  }
+
+  const fallbackText = normalized.replace(/[،;:()]/g, ' ');
+  const lines = fallbackText.split(/\s+/);
+  let currentDay = null;
+
+  for (let i = 0; i < lines.length; i++) {
+    const token = lines[i];
+    const foundDay = DAYS.find(day => token.includes(day));
+    if (foundDay) {
+      currentDay = foundDay;
+      continue;
+    }
+
+    if (!currentDay) continue;
+    const periodMatch = token.match(/^([1-8])$/);
+    if (periodMatch) {
+      const period = Number(periodMatch[1]);
+      const nextToken = lines[i + 1] || '';
+      if (/^[0-9/]+$/.test(nextToken)) {
+        teacherSchedule[`${currentDay}_${period}`] = nextToken;
+      }
+    }
+  }
+
+  teacher.tt = teacherSchedule;
+  saveData();
+  refreshAll();
+}
+
+async function handleOcrUpload(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+
+  const previewUrl = URL.createObjectURL(file);
+  els.ocrPreview.src = previewUrl;
+  els.ocrPreview.style.display = 'block';
+  els.ocrProgress.textContent = 'جارٍ قراءة الجدول...';
+  els.ocrResult.value = '';
+
+  try {
+    if (!window.Tesseract) {
+      throw new Error('مكتبة OCR غير متاحة');
+    }
+
+    const result = await Tesseract.recognize(file, 'ara+eng', {
+      logger: info => {
+        if (info.status && info.progress) {
+          els.ocrProgress.textContent = `جارٍ القراءة: ${Math.round(info.progress * 100)}%`;
+        }
+      }
+    });
+
+    const text = result.data.text || '';
+    els.ocrResult.value = text;
+    els.ocrProgress.textContent = 'تمت القراءة بنجاح';
+  } catch (error) {
+    els.ocrProgress.textContent = 'فشل في القراءة. جرّب صورة أوضح.';
+    console.error(error);
+  }
+}
+
+function applyOcrToTeacher() {
+  const teacher = appData.teachers.find(t => t.id === Number(selectedTeacherId));
+  if (!teacher) return;
+  const raw = els.ocrResult.value.trim();
+  if (!raw) return alert('لا توجد بيانات OCR للجدول');
+  parseOcrTextToTeacherSchedule(raw, teacher);
+  alert('تم تطبيق القراءة على جدول المدرس المحدد');
+}
+
 function bindEvents() {
   document.querySelectorAll('.tab').forEach(tab => {
     tab.addEventListener('click', () => {
@@ -373,6 +465,10 @@ function bindEvents() {
   els.addTeacherBtn.addEventListener('click', addTeacher);
   els.monthInput.value = new Date().toISOString().slice(0, 7);
   els.monthInput.addEventListener('change', renderReports);
+
+  els.scanScheduleBtn.addEventListener('click', () => els.ocrFileInput.click());
+  els.ocrFileInput.addEventListener('change', handleOcrUpload);
+  els.applyOcrBtn.addEventListener('click', applyOcrToTeacher);
 
   document.addEventListener('click', e => {
     const absentBtn = e.target.closest('[data-toggle-absent]');
